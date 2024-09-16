@@ -1,0 +1,75 @@
+WITH
+  botTradesWithFees AS (
+    SELECT
+      block_time,
+      blockchain,
+      date_trunc('day', block_time) AS block_date,
+      amount_usd,
+      fee_usd,
+      type,
+      --project_contract_address,
+      user AS userAddress,
+      tx_id AS tx_hash
+    FROM
+      dune.primordium.result_trojan_solana_cleaned_trades
+      -- query_3515962 -- Trojan Bot Trades
+      --WHERE isLastTradeInTransaction = true -- This prevents over counting for multi-hop trades and excludes tax distributions 
+  ),
+  leaderboard AS (
+    SELECT
+      RANK() OVER (
+        ORDER BY
+          SUM(amount_usd) DESC
+      ) AS userRank,
+      blockchain,
+      SUM(amount_usd) AS totalVolumeUSD,
+      SUM(IF("type" = 'Buy', amount_usd, 0)) AS buyVolumeUSD,
+      SUM(IF("type" = 'Sell', amount_usd, 0)) AS sellVolumeUSD,
+      COUNT(DISTINCT (tx_hash)) AS numberOfTrades,
+      --COUNT(DISTINCT (project_contract_address)) AS numberOfPairs,
+      COUNT(DISTINCT (block_date)) AS numberOfActiveDays,
+      SUM(fee_usd) AS feesPaidUSD,
+      MIN(block_time) AS firstTradeDate,
+      MAX(block_time) AS lastTradeDate,
+      userAddress
+    FROM
+      botTradesWithFees
+    GROUP BY
+      userAddress,
+      blockchain
+    ORDER BY
+      totalVolumeUSD DESC
+  )
+SELECT
+  userRank,
+  IF(name IS NULL, CAST(userAddress AS VARCHAR), name) AS user,
+  CONCAT(
+    '<a href="https://debank.com/profile/',
+    CAST(userAddress AS VARCHAR),
+    '?t=1688541960890&r=65920" target=_blank">',
+    IF(name IS NULL, CAST(userAddress AS VARCHAR), name),
+    '</a>'
+  ) AS user_url,
+  blockchain,
+  totalVolumeUSD,
+  buyVolumeUSD,
+  sellVolumeUSD,
+  numberOfTrades,
+  --numberOfPairs,
+  numberOfActiveDays,
+  feesPaidUSD,
+  firstTradeDate,
+  lastTradeDate,
+  userAddress,
+  CONCAT(
+    '<a href="https://debank.com/profile/',
+    CAST(userAddress AS VARCHAR),
+    '?t=1688541960890&r=65920" target=_blank">',
+    CAST(userAddress AS VARCHAR),
+    '</a>'
+  ) AS userAddress_url
+FROM
+  leaderboard
+  LEFT OUTER JOIN ens.reverse_latest ON CAST(ens.reverse_latest.address AS VARCHAR) = leaderboard.userAddress
+ORDER BY
+  userRank ASC
